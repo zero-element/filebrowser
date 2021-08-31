@@ -24,7 +24,7 @@ type PreviewSize int
 
 type ImgService interface {
 	FormatFromExtension(ext string) (img.Format, error)
-	Resize(ctx context.Context, in io.Reader, width, height int, out io.Writer, options ...img.Option) error
+	Resize(ctx context.Context, in io.Reader, width, height int, out io.Writer, isRaw bool, options ...img.Option) error
 }
 
 type FileCache interface {
@@ -97,7 +97,12 @@ func handleImagePreview(
 		return errToStatus(err), err
 	}
 	if !ok {
-		resizedImage, err = createPreview(imgSvc, fileCache, file, previewSize)
+		switch format {
+		case img.FormatCR2:
+			resizedImage, err = createPreview(imgSvc, fileCache, file, previewSize, true)
+		default:
+			resizedImage, err = createPreview(imgSvc, fileCache, file, previewSize, false)
+		}
 		if err != nil {
 			return errToStatus(err), err
 		}
@@ -110,7 +115,7 @@ func handleImagePreview(
 }
 
 func createPreview(imgSvc ImgService, fileCache FileCache,
-	file *files.FileInfo, previewSize PreviewSize) ([]byte, error) {
+	file *files.FileInfo, previewSize PreviewSize, isRaw bool) ([]byte, error) {
 	fd, err := file.Fs.Open(file.Path)
 	if err != nil {
 		return nil, err
@@ -137,7 +142,8 @@ func createPreview(imgSvc ImgService, fileCache FileCache,
 	}
 
 	buf := &bytes.Buffer{}
-	if err := imgSvc.Resize(context.Background(), fd, width, height, buf, options...); err != nil {
+
+	if err := imgSvc.Resize(context.Background(), fd, width, height, buf, isRaw, options...); err != nil {
 		return nil, err
 	}
 

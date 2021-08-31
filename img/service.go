@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"image"
 	"io"
+	"strings"
 
 	"github.com/disintegration/imaging"
 	"github.com/dsoprea/go-exif/v3"
 	"github.com/marusama/semaphore/v2"
 
 	exifcommon "github.com/dsoprea/go-exif/v3/common"
+	"github.com/nf/cr2"
 )
 
 // ErrUnsupportedFormat means the given image format is not supported.
@@ -90,6 +92,9 @@ fill
 type ResizeMode int
 
 func (s *Service) FormatFromExtension(ext string) (Format, error) {
+	if strings.ToLower(strings.TrimPrefix(ext, ".")) == "cr2" {
+		return FormatCR2, nil
+	}
 	format, err := imaging.FormatFromExtension(ext)
 	if err != nil {
 		return -1, ErrUnsupportedFormat
@@ -135,15 +140,25 @@ func WithQuality(quality Quality) Option {
 	}
 }
 
-func (s *Service) Resize(ctx context.Context, in io.Reader, width, height int, out io.Writer, options ...Option) error {
+func (s *Service) Resize(ctx context.Context, in io.Reader, width, height int, out io.Writer, isRaw bool, options ...Option) error {
 	if err := s.sem.Acquire(ctx, 1); err != nil {
 		return err
 	}
 	defer s.sem.Release(1)
 
-	format, wrappedReader, err := s.detectFormat(in)
-	if err != nil {
-		return err
+	var (
+		format        Format
+		wrappedReader io.Reader
+		img           image.Image
+		err           error
+	)
+	if isRaw {
+		format, wrappedReader = FormatTiff, in
+	} else {
+		format, wrappedReader, err = s.detectFormat(in)
+		if err != nil {
+			return err
+		}
 	}
 
 	config := resizeConfig{
@@ -166,7 +181,11 @@ func (s *Service) Resize(ctx context.Context, in io.Reader, width, height int, o
 		}
 	}
 
-	img, err := imaging.Decode(wrappedReader, imaging.AutoOrientation(true))
+	if isRaw {
+		img, err = cr2.Decode(wrappedReader)
+	} else {
+		img, err = imaging.Decode(wrappedReader, imaging.AutoOrientation(true))
+	}
 	if err != nil {
 		return err
 	}
